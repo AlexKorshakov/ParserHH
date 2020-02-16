@@ -1,11 +1,8 @@
 import csv
 from datetime import datetime
 from typing import Union
-
 import requests
 import re
-# from lxml.etree import strip_tags
-from django.utils.html import strip_tags
 import win32com.client as com_client
 from bs4 import BeautifulSoup as bs
 
@@ -68,12 +65,15 @@ def HH_parse(base_url, headers):
 def file_writer(jobs):
     with open('parsed_jobs.csv', 'w') as file:
         a_pen = csv.writer(file)
-        a_pen.writerow((" Номер вакансии "," Название вакансии ", " URL ", " Название Компании ", " Описание "))
+        a_pen.writerow((" Номер вакансии ", " Название вакансии ", " URL ", " Название Компании ",
+                        " Описание ", " Подробное описание "))
         for job in jobs:
-            a_pen.writerow((job['rowNom'],job['title'], job['href'], job['company'], job['content']))
+            a_pen.writerow((job['rowNom'], job['title'], job['href'],
+                            job['company'], job['content']))
 
 
 def deep_pars(jobs, headers):
+    deepcont=[]
     try:
         for job in jobs:
             session = requests.Session()
@@ -82,12 +82,8 @@ def deep_pars(jobs, headers):
                 soup = bs(request.content, 'lxml')
                 try:
                     pagination = soup.find_all('div', attrs={'data-qa': 'vacancy-description'})
-                    #cleanhtml(str(pagination))
-                    strip_tags(str(pagination))
-                    print(pagination)
-                    #for i in range(count):
-                        #if url not in urls_deep:
-                            #urls_deep.append(url)
+                    pag_text = clear_string(str(pagination))
+                    deepcont.append({'deepcontent': pag_text})
                 except:
                     print('Err pagination')
                     pass
@@ -96,9 +92,22 @@ def deep_pars(jobs, headers):
         pass
     finally:
         print('Done deep_pars')
+    return deepcont
 
 
-def file_writer_win32(jobs):
+def clear_string(string):
+    cleanr = {
+        '</p>', '<p>', '</li>', '<li>', '</ul>', '<ul>', '</div>', '<div>', '</strong>', '<strong>',
+        '</em>', '<em>', '</br>', '<br>', '<br/>', '  '
+    }
+    for cl in cleanr:
+        string = re.sub(cl, '', string)
+    #print(string)
+    return string
+
+
+def file_writer_win32(jobs, deepcont):
+    #print(jobs)
     try:
         excel = com_client.Dispatch("Excel.Application")
         excel.Visible = False
@@ -108,6 +117,7 @@ def file_writer_win32(jobs):
         wb = excel.Workbooks.Open(path)
         try:
             ws_list1 = wb.Worksheets('Лист1')
+            ws_list2 = wb.Worksheets('Лист2')
             #ws_list1.Range('A1:F200').Select()
             #ws_list1.Selection.Delete()
             #ws = wb.Worksheets.Add()
@@ -119,6 +129,11 @@ def file_writer_win32(jobs):
                 ws_list1.Cells(iRow, 3).Value = job['href']
                 ws_list1.Cells(iRow, 4).Value = job['company']
                 ws_list1.Cells(iRow, 5).Value = job['content']
+            iRow = 2
+            for dcont in deepcont:
+                iRow: Union[int, iRow] = iRow + 1
+                ws_list2.Cells(iRow, 1).Value = iRow - 2
+                ws_list2.Cells(iRow, 2).Value = dcont['deepcontent']
         finally:
             wb.SaveAs(path)
             excel.DisplayAlerts = True
@@ -129,12 +144,7 @@ def file_writer_win32(jobs):
          excel.Quit()
 
 
-def cleanhtml(raw_html):
-    cleanr = re.compile('<.*?>')
-    cleantext = re.sub(cleanr, '', raw_html)
-    return cleantext
-
 jobs = HH_parse(base_url, headers)
 #file_writer(jobs)
-#file_writer_win32(jobs)
-deep_pars(jobs, headers)
+deepcont = deep_pars(jobs, headers)
+file_writer_win32(jobs, deepcont)

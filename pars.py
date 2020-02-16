@@ -1,12 +1,17 @@
-import requests
 import csv
-from datetime import time, datetime
+from datetime import datetime
+from typing import Union
+
+import requests
+import re
+# from lxml.etree import strip_tags
+from django.utils.html import strip_tags
+import win32com.client as com_client
 from bs4 import BeautifulSoup as bs
 
 headers = {'accept': '*/*',
            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.106 Safari/537.36'}
-base_url = 'https://krasnodar.hh.ru/search/vacancy?clusters=true&area=53&items_on_page=50&no_magic=true&enable_snippets=true&salary=&st=searchVacancy&text=Python'
-
+base_url = f'https://krasnodar.hh.ru/search/vacancy?area=53&clusters=true&employment=full&enable_snippets=true&items_on_page=100&label=not_from_agency&no_magic=true&schedule=fullDay&text=Python&only_with_salary=true&salary=115000&from=cluster_compensation&showClusters=true'
 
 def HH_parse(base_url, headers):
     jobs = []
@@ -15,14 +20,14 @@ def HH_parse(base_url, headers):
     session = requests.Session()
     request = session.get(base_url, headers=headers)
     if request.status_code == 200:
-        start = datetime.now()
+        start: datetime = datetime.now()
         soup = bs(request.content, 'lxml')
         try:
             pagination = soup.find_all('a', attrs={'data-qa': 'pager-page'})
             count = int(pagination[-1].text)
             for i in range(count):
-                #url = f'base_url+'&page='+{i}
-                url = f'https://krasnodar.hh.ru/search/vacancy?clusters=true&area=53&items_on_page=50&no_magic=true&enable_snippets=true&salary=&st=searchVacancy&text=Python&page={i}'
+                url = base_url + '&page={i}'
+                #url = f'https://krasnodar.hh.ru/search/vacancy?clusters=true&area=53&items_on_page=50&no_magic=true&enable_snippets=true&salary=&st=searchVacancy&text=Python&page={i}'
                 if url not in urls:
                     urls.append(url)
         except:
@@ -30,20 +35,22 @@ def HH_parse(base_url, headers):
     for url in urls:
         request = session.get(url, headers=headers)
         soup = bs(request.content, 'lxml')
-
         divs = soup.find_all('div', attrs={'data-qa': 'vacancy-serp__vacancy'})
+        iRow = 0
         for div in divs:
             try:
-                title = div.find('a', attrs={'data-qa': 'vacancy-serp__vacancy-title'}).text + ' ; '
-                href = div.find('a', attrs={'data-qa': 'vacancy-serp__vacancy-title'})['href'] + ' ; '
-                company = div.find('a', attrs={'data-qa': 'vacancy-serp__vacancy-employer'}).text + ' ; '
-                text1 = div.find('div', attrs={'data-qa': 'vacancy-serp__vacancy_snippet_responsibility'}).text + ' ; '
+                title = div.find('a', attrs={'data-qa': 'vacancy-serp__vacancy-title'}).text
+                href = div.find('a', attrs={'data-qa': 'vacancy-serp__vacancy-title'})['href']
+                company = div.find('a', attrs={'data-qa': 'vacancy-serp__vacancy-employer'}).text
+                text1 = div.find('div', attrs={'data-qa': 'vacancy-serp__vacancy_snippet_responsibility'}).text
                 try:
-                    text2 = div.find('div',attrs={'data-qa': 'vacancy-vacancy-serp__vacancy_snippet_requirement'}).text + ' ; '
+                    text2 = div.find('div',attrs={'data-qa': 'vacancy-vacancy-serp__vacancy_snippet_requirement'}).text
                     content = str(text1) + ' ' + str(text2)
                 except:
                     content = str(text1)
+                iRow: Union[int, iRow] = iRow + 1
                 jobs.append({
+                    'rowNom': iRow,
                     'title': title,
                     'href': href,
                     'company': company,
@@ -61,10 +68,73 @@ def HH_parse(base_url, headers):
 def file_writer(jobs):
     with open('parsed_jobs.csv', 'w') as file:
         a_pen = csv.writer(file)
-        a_pen.writerow((" Название вакансии; ", " URL; ", " Название Компании; ", " Описание; "))
+        a_pen.writerow((" Номер вакансии "," Название вакансии ", " URL ", " Название Компании ", " Описание "))
         for job in jobs:
-            a_pen.writerow((job['title'], job['href'], job['company'], job['content']))
+            a_pen.writerow((job['rowNom'],job['title'], job['href'], job['company'], job['content']))
 
+
+def deep_pars(jobs, headers):
+    try:
+        for job in jobs:
+            session = requests.Session()
+            request = session.get(job['href'], headers=headers)
+            if request.status_code == 200:
+                soup = bs(request.content, 'lxml')
+                try:
+                    pagination = soup.find_all('div', attrs={'data-qa': 'vacancy-description'})
+                    #cleanhtml(str(pagination))
+                    strip_tags(str(pagination))
+                    print(pagination)
+                    #for i in range(count):
+                        #if url not in urls_deep:
+                            #urls_deep.append(url)
+                except:
+                    print('Err pagination')
+                    pass
+    except:
+        print('Err deep_pars')
+        pass
+    finally:
+        print('Done deep_pars')
+
+
+def file_writer_win32(jobs):
+    try:
+        excel = com_client.Dispatch("Excel.Application")
+        excel.Visible = False
+        excel.DisplayAlerts = False
+        excel.ScreenUpdating = False
+        path = r'C:\Users\DeusEx\PycharmProjects\ParserHH\parsed_jobs.xlsx'
+        wb = excel.Workbooks.Open(path)
+        try:
+            ws_list1 = wb.Worksheets('Лист1')
+            #ws_list1.Range('A1:F200').Select()
+            #ws_list1.Selection.Delete()
+            #ws = wb.Worksheets.Add()
+            iRow = 2
+            for job in jobs:
+                iRow: Union[int, iRow] = iRow + 1
+                ws_list1.Cells(iRow, 1).Value = iRow - 2 #job['rowNom']
+                ws_list1.Cells(iRow, 2).Value = job['title']
+                ws_list1.Cells(iRow, 3).Value = job['href']
+                ws_list1.Cells(iRow, 4).Value = job['company']
+                ws_list1.Cells(iRow, 5).Value = job['content']
+        finally:
+            wb.SaveAs(path)
+            excel.DisplayAlerts = True
+            excel.ScreenUpdating = True
+            #wb.Close(True)
+        print('Всего записей: ' + str(iRow - 2))
+    finally:
+         excel.Quit()
+
+
+def cleanhtml(raw_html):
+    cleanr = re.compile('<.*?>')
+    cleantext = re.sub(cleanr, '', raw_html)
+    return cleantext
 
 jobs = HH_parse(base_url, headers)
-file_writer(jobs)
+#file_writer(jobs)
+#file_writer_win32(jobs)
+deep_pars(jobs, headers)
